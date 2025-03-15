@@ -1,24 +1,77 @@
+const { MongoClient, ObjectId } = require('mongodb');
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-require('dotenv').config();
-
-const userRoutes = require('./routes/userRoutes');
-
+const dotenv = require('dotenv');
 const app = express();
-app.use(express.json());
+
+dotenv.config();
 app.use(cors());
+app.use(express.json());
 
-mongoose.connect('mongodb://localhost:27017/disasterDB', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-}).then(() => console.log("MongoDB Connected"))
-  .catch(err => console.error(err));
+let db;
+const connectDB = async () => {
+  try {
+    const client = await MongoClient.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true
+    });
+    db = client.db();
+    console.log('Connected to MongoDB');
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+  }
+};
+connectDB();
 
-app.use('/api/users', userRoutes);
+// Application routes
+app.post('/api/applications', async (req, res) => {
+  try {
+    const { name, issue, location } = req.body;
+    if (!name || !issue || !location) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    
+    const result = await db.collection('applications').insertOne({
+      name,
+      issue,
+      location,
+      status: 'Pending',
+      createdAt: new Date()
+    });
+    
+    res.status(201).json({ ...req.body, _id: result.insertedId });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
-app.get('/', (req, res) => {
-    res.send('Disaster Management API is running...');
+app.get('/api/applications', async (req, res) => {
+  try {
+    const applications = await db.collection('applications')
+      .find()
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(applications);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.put('/api/applications/:id', async (req, res) => {
+  try {
+    const result = await db.collection('applications').findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { status: req.body.status } },
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+    res.json(result.value);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
